@@ -39,28 +39,33 @@ import java.util.HashSet;
  * This is a basic implementation of a Server Controller for the ORP using the jetty framework.
  */
 public class ORPServiceHandler extends AbstractHandler {
-    private final static Logger logger = LogManager.getLogger(ORPServiceHandler.class.getName());
+    public static final String COMMAND_RESET = "reset";
+    public static final String COMMAND_BYE = "bye";
+    public static final String COMMAND_REQUEST = "recommendation_request";
+    public static final String COMMAND_ITEM_UPDATE = "item_update";
+    public static final String COMMAND_EVENT = "event_notification";
+    public static final String COMMAND_ERROR = "error_notification";
 
-    public static final String COMMAND_RESET        = "reset";
-    public static final String COMMAND_BYE          = "bye";
-    public static final String COMMAND_REQUEST      = "recommendation_request";
-    public static final String COMMAND_ITEM_UPDATE  = "item_update";
-    public static final String COMMAND_EVENT        = "event_notification";
-    public static final String COMMAND_ERROR        = "error_notification";
     public static final int response_time = 200;
+
+    private final static Logger logger = LogManager.getLogger(ORPServiceHandler.class.getName());
 
     private final Recommendation.MultiDomain handler;
     private final long MEM_LIMIT;
     private final HashSet<Long> domainWhiteList;
 
+    //fallback recommender to respond to blacklisted domains
+    private final ORPFallback fallback = new ORPFallback(6);
+    private MessageRecorder messageRecorder;
+
     public ORPServiceHandler(Recommendation.MultiDomain handler) {
-        this(handler,null,-1l,false);
+        this(handler, null, -1l, false);
     }
 
     public ORPServiceHandler(Recommendation.MultiDomain handler,
                              final HashSet<Long> whiteList,
-                             long memLimit){
-        this(handler,whiteList,memLimit,false);
+                             long memLimit) {
+        this(handler, whiteList, memLimit, false);
     }
 
     public ORPServiceHandler(Recommendation.MultiDomain handler,
@@ -71,10 +76,10 @@ public class ORPServiceHandler extends AbstractHandler {
         this.MEM_LIMIT = memLimit;
         logger.info("using handler:" + handler);
 
-        if(logMessages){
-            try{
-                messageRecorder  = MessageRecorder.getInstance("message_record.log.gz");
-            } catch (IOException e){
+        if (logMessages) {
+            try {
+                messageRecorder = MessageRecorder.getInstance("message_record.log.gz");
+            } catch (IOException e) {
                 messageRecorder = null;
             }
         } else {
@@ -83,13 +88,11 @@ public class ORPServiceHandler extends AbstractHandler {
 
     }
 
-    private MessageRecorder messageRecorder;
-
     @Override
     public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException {
         long time = System.currentTimeMillis();
         try {
-            String typeMessage = "unknown",bodyMessage = null,_response = null;
+            String typeMessage = "unknown", bodyMessage = null, _response = null;
             if (baseRequest.getMethod().equalsIgnoreCase("POST")) {
 
                 if (baseRequest.getContentLength() > 0) {
@@ -109,16 +112,15 @@ public class ORPServiceHandler extends AbstractHandler {
                     response(null, response, baseRequest);
                 }
             } else {
-                baseRequest.setHandled(true);
-                response.setStatus(HttpServletResponse.SC_OK);
+                response(null, response, baseRequest);
             }
             time = System.currentTimeMillis() - time;
-            if(time > response_time){
-                if(messageRecorder != null){
+            if (time > response_time) {
+                if (messageRecorder != null) {
                     messageRecorder.write(bodyMessage);
                 }
-                logger.debug(String.format("[response %s took: %d]",typeMessage, time));
-                if(messageRecorder != null){
+                logger.debug(String.format("[response %s took: %d]", typeMessage, time));
+                if (messageRecorder != null) {
                     messageRecorder.write(_response);
                 }
             }
@@ -126,11 +128,11 @@ public class ORPServiceHandler extends AbstractHandler {
         } catch (Exception e) {
             logger.error("failed to answer", e);
             response(null, response, baseRequest);
-        } catch (OutOfMemoryError e){
+        } catch (OutOfMemoryError e) {
             handler.reset();
         }
 
-        if(MEM_LIMIT > 0){
+        if (MEM_LIMIT > 0) {
             long free = Runtime.getRuntime().freeMemory();
 
             if (free < MEM_LIMIT) {
@@ -146,7 +148,6 @@ public class ORPServiceHandler extends AbstractHandler {
     private void response(String msg, HttpServletResponse response, Request baseRequest) throws IOException {
         response.setContentType("text/html;charset=utf-8");
         response.setStatus(HttpServletResponse.SC_OK);
-        baseRequest.setHandled(true);
 
         if (msg != null) {
             response.getWriter().println(msg);
@@ -157,19 +158,25 @@ public class ORPServiceHandler extends AbstractHandler {
 
 
     private String handle(String type, String _msg) {
-        if(type.equalsIgnoreCase(COMMAND_RESET)){
+        if (type.equalsIgnoreCase(COMMAND_RESET)) {
             this.handler.reset();
             return null;
         }
         ORPMessage msg;
-        try{
-            msg  = ORPMessage.getInstanceFormJson(_msg);
-        } catch (ParseException e){
-            logger.error(String.format("%s:%s","Parsing Error",_msg),e);
+        try {
+            msg = ORPMessage.getInstanceFormJson(_msg);
+        } catch (ParseException e) {
+            logger.error(String.format("%s:%s", "Parsing Error", _msg), e);
             return null;
         }
 
-        boolean blackListed = domainWhiteList != null && !domainWhiteList.contains(msg.getDomain()) ;
+        boolean blackListed = domainWhiteList != null && !domainWhiteList.contains(msg.getDomain());
+        Recommendation.MultiDomain algo;
+        if (!blackListed) {
+            algo = handler;
+        } else {
+            algo = fallback;
+        }
 
         switch (type) {
             case COMMAND_ERROR:
@@ -178,7 +185,7 @@ public class ORPServiceHandler extends AbstractHandler {
             case COMMAND_BYE:
                 try {
                     handler.persist(new File("data"));
-                    if(messageRecorder != null){
+                    if (messageRecorder != null) {
                         messageRecorder.run();
                     }
                     handler.free();
@@ -188,77 +195,73 @@ public class ORPServiceHandler extends AbstractHandler {
                 break;
             case COMMAND_REQUEST:
                 if (msg.getDomain() == 0) {
-                    logger.warn("Bad Domain:" + msg.getDomain()+" "+_msg);
+                    logger.warn("Bad Domain:" + msg.getDomain() + " " + _msg);
                     return null;
                 }
                 ArrayList<Long> result;
-                if (!blackListed) {
-                    try {
 
-                        if (msg.getItem() == 0) {
-                            result = handler.recommend(msg.getDomain(), msg.getUser(), msg.getLimit(), msg);
-                        } else {
-                            result = handler.recommend(msg.getDomain(), msg.getUser(), msg.getItem(), msg.getLimit(), msg);
-                        }
+                try {
 
-                        if (result.size() < msg.getLimit()) {
-                            logger.warn(String.format("limit error - domain:%d user:%d - expected: %d got: %d", msg.getDomain(), msg.getUser(), msg.getLimit(), result.size()));
-                        }
-
-                        String response = String.format("{\"recs\": {\"ints\": {\"3\":%s }}}", result.toString());
-                        return response;
-                    } catch (Exception e) {
-                        logger.trace("recommendation",e);
+                    if (msg.getItem() == 0) {
+                        result = algo.recommend(msg.getDomain(), msg.getUser(), msg.getLimit(), msg);
+                    } else {
+                        result = algo.recommend(msg.getDomain(), msg.getUser(), msg.getItem(), msg.getLimit(), msg);
                     }
-                } else {
-                    return String.format("{\"recs\": {\"ints\": {\"3\":%s }}}","[]");
+
+                    if (result.size() < msg.getLimit()) {
+                        logger.warn(String.format("limit error - domain:%d user:%d - expected: %d got: %d", msg.getDomain(), msg.getUser(), msg.getLimit(), result.size()));
+                    }
+
+                    String response = String.format("{\"recs\": {\"ints\": {\"3\":%s }}}", result.toString());
+                    return response;
+                } catch (Exception e) {
+                    logger.trace("recommendation", e);
                 }
+
                 break;
             case COMMAND_ITEM_UPDATE:
-                if (!blackListed) {
-                    if (msg.getDomain() == 0 || msg.getItem() == 0) {
-                        logger.warn("Bad Message:" + msg);
-                        return null;
-                    }
-
-                    try {
-                        handler.item(msg.getItem(), msg.getDomain(), msg.getTitle(), msg.getTitle(), msg.getCreated_at(), msg);
-                    } catch (Exception e) {
-                        logger.trace("item_update",e);
-                    }
+                if (msg.getDomain() == 0 || msg.getItem() == 0) {
+                    logger.warn("Bad Message:" + msg);
+                    return null;
                 }
+
+                try {
+                    algo.item(msg.getItem(), msg.getDomain(), msg.getTitle(), msg.getTitle(), msg.getCreated_at(), msg);
+                } catch (Exception e) {
+                    logger.trace("item_update", e);
+                }
+
                 break;
             case COMMAND_EVENT:
-                if (!blackListed) {
-                    String etype = msg.getType();
-                    if (etype.matches("impression")) {
-                        try {
-                            if(msg.getItems() == null){
-                                logger.info("no items");
-                            } else {
-                                handler.impression(msg.getUser(), msg.getDomain(), msg.getItems(), msg);
-                            }
-                        } catch (Exception e) {
-                            logger.trace("impression",e);
+                String etype = msg.getType();
+                if (etype.matches("impression")) {
+                    try {
+                        if (msg.getItems() == null) {
+                            logger.info("no items");
+                        } else {
+                            algo.impression(msg.getUser(), msg.getDomain(), msg.getItems(), msg);
                         }
-                    } else if (etype.matches("click")) {
-                        try {
-                            handler.impression(msg.getUser(), msg.getDomain(), msg.getItems(), msg);
-                        } catch (Exception e) {
-                            logger.trace("click",e);
-                        }
-                    } else if (etype.matches("impression_empty")) {
-                        try {
-                            if (msg.getItem() != 0) {
-                                handler.impression(msg.getUser(), msg.getDomain(), new long[0], msg);
-                            }
-                        } catch (Exception e) {
-                            logger.trace("impression_empty",e);
-                        }
-                    } else {
-                        logger.error("unknown etype: " + etype + " " + _msg);
+                    } catch (Exception e) {
+                        logger.trace("impression", e);
                     }
+                } else if (etype.matches("click")) {
+                    try {
+                        algo.impression(msg.getUser(), msg.getDomain(), msg.getItems(), msg);
+                    } catch (Exception e) {
+                        logger.trace("click", e);
+                    }
+                } else if (etype.matches("impression_empty")) {
+                    try {
+                        if (msg.getItem() != 0) {
+                            algo.impression(msg.getUser(), msg.getDomain(), new long[0], msg);
+                        }
+                    } catch (Exception e) {
+                        logger.trace("impression_empty", e);
+                    }
+                } else {
+                    logger.error("unknown etype: " + etype + " " + _msg);
                 }
+
                 break;
         }
         return null;
