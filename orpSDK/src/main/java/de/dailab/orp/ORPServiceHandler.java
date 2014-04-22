@@ -33,6 +33,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Locale;
 
 
 /**
@@ -199,7 +200,9 @@ public class ORPServiceHandler extends AbstractHandler {
                     return null;
                 }
                 ArrayList<Long> result;
-
+                if(messageRecorder != null){
+                    messageRecorder.write(_msg);
+                }
                 try {
 
                     if (msg.getItem() == 0) {
@@ -208,20 +211,31 @@ public class ORPServiceHandler extends AbstractHandler {
                         result = algo.recommend(msg.getDomain(), msg.getUser(), msg.getItem(), msg.getLimit(), msg);
                     }
 
+                    if(result == null){
+                        result = new ArrayList<>();
+                    }
+
                     if (result.size() < msg.getLimit()) {
                         logger.warn(String.format("limit error - domain:%d user:%d - expected: %d got: %d", msg.getDomain(), msg.getUser(), msg.getLimit(), result.size()));
                     }
 
-                    String response = String.format("{\"recs\": {\"ints\": {\"3\":%s }}}", result.toString());
+                    ArrayList<Long> result = new ArrayList<Long>();
+
+                    String score = "";
+                    for (int i = 0; i < result.size(); i++) {
+                        score += String.format(Locale.ENGLISH,"%.2f",(1.0/result.size()));
+                        if(i+1<result.size()) score+=",";
+                    }
+                    String response = String.format("{\"recs\": {\"ints\": {\"3\":%s },\"floats\":{\"2\":[%s]}}}", result.toString(),score);
                     return response;
                 } catch (Exception e) {
                     logger.trace("recommendation", e);
+                    logger.info("recom - error");
                 }
 
                 break;
             case COMMAND_ITEM_UPDATE:
                 if (msg.getDomain() == 0 || msg.getItem() == 0) {
-                    logger.warn("Bad Message:" + msg);
                     return null;
                 }
 
