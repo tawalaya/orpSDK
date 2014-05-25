@@ -32,19 +32,33 @@ import java.util.Date;
  */
 public class ORPMessage {
 
-    private static final SimpleDateFormat parseDateTime = new SimpleDateFormat("MM-dd-yyyy hh:mm:ss");
+    private static final SimpleDateFormat parseDateTime = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss");
 
     public static long toDate(String date,long defaultValue){
         try {
-            return parseDateTime.parse(date).getTime();
+            date = date.substring(0,18);
+            Date d = parseDateTime.parse(date);
+            return d.getTime();
         } catch (ParseException e) {
             return defaultValue;
         }
     }
 
     public static String toDateString(long date){
-        Date d = new Date(date);
-        return parseDateTime.format(d);
+        Date d;
+        if(date > 0){
+            d = new Date(date);
+        } else {
+           d = new Date();
+        }
+        String s;
+        try{
+            s = parseDateTime.format(d);
+        } catch (Exception e){
+            System.out.println(date+":"+d);
+            s = "2013-06-01 00:00:00";
+        }
+        return s;
     }
 
     long user;
@@ -75,7 +89,7 @@ public class ORPMessage {
     }
 
     /**
-     * greedy parser function that turnes a json string into a ORPMessage object,
+     * greedy parser function that turns a json string into a ORPMessage object,
      * tries to convert all found information into values.
      *
      * @param _msg
@@ -121,12 +135,24 @@ public class ORPMessage {
         } catch (Exception e){}
 
         try{
-            m.setDomain(Long.parseLong(msg.get("domainid").asString()));
-        } catch (Exception e){}
+            m.setDomain(msg.get("domainid").asLong());
+        } catch (Exception e){
+            try {
+                m.setDomain(Long.parseLong(msg.get("domainid").asString()));
+            } catch (Exception ee){
+
+            }
+        }
 
         try{
-            m.setItem(Long.parseLong(msg.get("id").asString()));
-        } catch (Exception e){}
+            m.setItem(msg.get("id").asLong());
+        } catch (Exception e){
+            try {
+                m.setItem(Long.parseLong(msg.get("id").asString()));
+            } catch (Exception ee){
+
+            }
+        }
 
         try{
             m.setType(msg.get("type").asString());

@@ -105,6 +105,12 @@ public interface Graph<K> extends Iterable<K> {
     public int size();
 
     /**
+     * returns a reduced graph
+     * @param limit
+     */
+    public Graph<K> shrink(int limit);
+
+    /**
      * This Class functions as a Event-Listener for events on this Graph
      * @param <K>
      */

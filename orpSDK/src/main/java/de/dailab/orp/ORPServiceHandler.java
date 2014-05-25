@@ -56,7 +56,7 @@ public class ORPServiceHandler extends AbstractHandler {
     private final HashSet<Long> domainWhiteList;
 
     //fallback recommender to respond to blacklisted domains
-    private final ORPFallback fallback = new ORPFallback(6);
+    private final Recommendation.MultiDomain fallback;// = new MDGeneric(new ORPFallback());
     private MessageRecorder messageRecorder;
 
     public ORPServiceHandler(Recommendation.MultiDomain handler) {
@@ -70,8 +70,15 @@ public class ORPServiceHandler extends AbstractHandler {
     }
 
     public ORPServiceHandler(Recommendation.MultiDomain handler,
+                              final HashSet<Long> whiteList,
+                              long memLimit, boolean logMessages) {
+        this(handler, whiteList, memLimit, logMessages,new MDGeneric(new ORPFallback()));
+    }
+
+    public ORPServiceHandler(Recommendation.MultiDomain handler,
                              final HashSet<Long> whiteList,
-                             long memLimit, boolean logMessages) {
+                             long memLimit, boolean logMessages,
+                             Recommendation.MultiDomain fallback) {
         this.handler = handler;
         domainWhiteList = whiteList;
         this.MEM_LIMIT = memLimit;
@@ -86,8 +93,9 @@ public class ORPServiceHandler extends AbstractHandler {
         } else {
             messageRecorder = null;
         }
-
+        this.fallback = fallback;
     }
+
 
     @Override
     public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException {
@@ -157,6 +165,7 @@ public class ORPServiceHandler extends AbstractHandler {
         baseRequest.setHandled(true);
     }
 
+    HashSet<Long> domains = new HashSet<>();
 
     private String handle(String type, String _msg) {
         if (type.equalsIgnoreCase(COMMAND_RESET)) {
@@ -216,10 +225,8 @@ public class ORPServiceHandler extends AbstractHandler {
                     }
 
                     if (result.size() < msg.getLimit()) {
-                        logger.warn(String.format("limit error - domain:%d user:%d - expected: %d got: %d", msg.getDomain(), msg.getUser(), msg.getLimit(), result.size()));
+                        logger.warn(String.format("limit error - %s - domain:%d user:%d - expected: %d got: %d",algo.toString(), msg.getDomain(), msg.getUser(), msg.getLimit(), result.size()));
                     }
-
-                    ArrayList<Long> result = new ArrayList<Long>();
 
                     String score = "";
                     for (int i = 0; i < result.size(); i++) {
@@ -247,11 +254,21 @@ public class ORPServiceHandler extends AbstractHandler {
 
                 break;
             case COMMAND_EVENT:
+
                 String etype = msg.getType();
+                if(etype == null){
+                    logger.error(String.format("coudn't read Event:%s"+_msg));
+                    return null;
+                }
                 if (etype.matches("impression")) {
                     try {
                         if (msg.getItems() == null) {
-                            logger.info("no items");
+                            if(messageRecorder != null){
+                                messageRecorder.write(_msg);
+                            }
+                            if(msg.getItem() != 0){
+                                algo.impression(msg.getUser(), msg.getDomain(), new long[]{msg.getItem()}, msg);
+                            }
                         } else {
                             algo.impression(msg.getUser(), msg.getDomain(), msg.getItems(), msg);
                         }
@@ -267,7 +284,7 @@ public class ORPServiceHandler extends AbstractHandler {
                 } else if (etype.matches("impression_empty")) {
                     try {
                         if (msg.getItem() != 0) {
-                            algo.impression(msg.getUser(), msg.getDomain(), new long[0], msg);
+                            algo.impression(msg.getUser(), msg.getDomain(), new long[]{msg.getItem()}, msg);
                         }
                     } catch (Exception e) {
                         logger.trace("impression_empty", e);

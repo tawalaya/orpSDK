@@ -17,9 +17,12 @@
 
 package de.dailab.orp;
 
+import au.com.bytecode.opencsv.CSVReader;
+import au.com.bytecode.opencsv.CSVWriter;
 import com.google.common.collect.HashBasedTable;
 import de.dailab.orp.core.ORPMessage;
 import de.dailab.orp.core.Recommendation;
+import de.dailab.orp.core.Registry;
 
 import java.io.File;
 import java.io.IOException;
@@ -29,99 +32,62 @@ import java.util.LinkedHashMap;
 /**
  * Default Recommender (basic Buffer to return valid recommendation)
  */
-public class ORPFallback implements Recommendation.MultiDomain {
+public class ORPFallback implements Recommendation.SingeDomain {
 
-    final int defaultSize;
+    final long[] buffer = new long[8];
+    int pointer = 0;
 
-    final LinkedHashMap<Long,Long[]>  domains = new LinkedHashMap<>();
-    final LinkedHashMap<Long,Integer> pointer = new LinkedHashMap<>();
+    @Override
+    public void setRegistry(Registry registry) {
 
-    public ORPFallback(int defaultSize){
-        this.defaultSize = defaultSize;
-    }
-
-    private Long[] get(Long domain){
-        domains.putIfAbsent(domain,new Long[defaultSize]);
-
-        return domains.get(domain);
-    }
-
-    private void put(Long domain,long item){
-        domains.putIfAbsent(domain,new Long[defaultSize]);
-        pointer.putIfAbsent(domain,0);
-
-        int pid = ((pointer.get(domain)+1)%defaultSize);
-
-        pointer.replace(domain,pointer.get(domain),pid);
-        domains.get(domain)[pid] = item;
     }
 
     @Override
-    public void update(long domain, long userID, long itemID, ORPMessage values) throws Exception {
-        put(domain,itemID);
+    public void update(long user, long item, ORPMessage values) throws Exception {
+        pointer = (pointer+1)%buffer.length;
+        buffer[pointer] = item;
     }
 
     @Override
-    public void item(long id, long domain, String title, String text, long time, ORPMessage values) throws Exception {
-        put(domain,id);
+    public void item(long item, String title, String text, long time, ORPMessage values) throws Exception {
+        pointer = (pointer+1)%buffer.length;
+        buffer[pointer] = item;
     }
 
     @Override
-    public void impression(long user, long domain, long[] items, ORPMessage values) throws Exception {
-        for(long item : items){
-            put(domain,item);
+    public void impression(long user, long[] items, ORPMessage values) throws Exception {
+        for(long item:items){
+            pointer = (pointer+1)%buffer.length;
+            buffer[pointer] = item;
         }
     }
 
     @Override
-    public ArrayList<Long> recommend(long domain, long userId, int number, ORPMessage values) throws Exception {
-        Long[] data = get(domain);
-        ArrayList<Long> recom = new ArrayList<>();
+    public ArrayList<Long> recommend(long user, int number, ORPMessage values) throws Exception {
+        ArrayList<Long> l = new ArrayList<>();
+        int p = pointer;
         for (int i = 0; i < number; i++) {
-            int pid = (pointer.getOrDefault(domain,0)+i)%defaultSize;
-            recom.add(data[pid]);
+            p = (p+1)%buffer.length;
+            l.add(buffer[p]);
         }
-        return recom;
+        return l;
     }
 
     @Override
-    public ArrayList<Long> recommend(long domain, long userId, long itemID, int number, ORPMessage values) throws Exception {
-        update(domain,userId,itemID,values);
-        return recommend(domain,userId,number,values);
+    public ArrayList<Long> recommend(long user, long item, int number, ORPMessage values) throws Exception {
+        update(user,item,values);
+        return recommend(user,number,values);
     }
 
     @Override
-    public void persist(File dir) throws IOException {
-
-    }
+    public void persist(CSVWriter writer) throws IOException {}
 
     @Override
-    public void reload(File dir) throws IOException {
-
-    }
+    public void reload(CSVReader reader) throws IOException {}
 
     @Override
-    public HashBasedTable<Long, String, Integer> getStatisticPerDomain() {
-        return HashBasedTable.create();
-    }
+    public void reset() {}
 
     @Override
-    public float getAverageResponseTime() {
-        return 0;
-    }
-
-    @Override
-    public long latestReset() {
-        return 0;
-    }
-
-    @Override
-    public void reset() {
-
-    }
-
-    @Override
-    public void free() {
-
-    }
+    public void free() {}
 }
