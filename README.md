@@ -15,15 +15,14 @@ This Project consists of two parts, a SDK to interact with the ORP System (orpSD
 #orpSDK Overview
 The orpSDK consists of a jetty compontent that handels comunication with the orp servers. All recommendations, item updates and impressions are forworded to a MultiDomain Recommender witch needs to be implemented to use this framework. 
 
-![alt text](... "orpSDK class diagram")
+![orpSDK class diagram](https://github.com/tawalaya/orpSDK/blob/master/orpSDK.png)
 
 The Frameworks core component is the Recommendation Interface. It contains a MultiDomain and SingleDomain interface. Each has functions to prosses impressions, updates,
 and recomendation request. Asided from both interfaces have methodes to agressivly free memmory, persist the state of the algorithmen as well as restore form persisted files. 
 
 #orpTestSDK Overview
 The TestSDK is a set of classes and interfaces to send, receive and evalueate messages from a orp service implementation.
-
-![alt text](... "orpTestSDK class diagram")
+![orpTestSDK class diagram](https://github.com/tawalaya/orpSDK/blob/master/orpTestSDK.png)
 
 #Licence
 LGPL v.3 
