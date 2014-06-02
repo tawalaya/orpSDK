@@ -26,4 +26,4 @@ The TestSDK is a set of classes and interfaces to send, receive and evalueate me
 ![alt text](... "orpTestSDK class diagram")
 
 #Licence
-GPL v.3 
+LGPL v.3 
